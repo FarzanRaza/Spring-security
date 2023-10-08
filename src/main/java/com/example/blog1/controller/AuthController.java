@@ -1,14 +1,19 @@
 package com.example.blog1.controller;
 
+import com.example.blog1.entity.Role;
 import com.example.blog1.entity.User;
 import com.example.blog1.payload.LoginDto;
 import com.example.blog1.payload.SignUpDto;
+import com.example.blog1.repository.RoleRepository;
 import com.example.blog1.repository.UserRepository;
+import com.example.blog1.security.JWTAuthResponse;
+import com.example.blog1.security.JwtTokenProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import
+        org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -16,44 +21,54 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import java.util.Collections;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
     @Autowired
+    private AuthenticationManager authenticationManager;
+    @Autowired
     private UserRepository userRepository;
     @Autowired
-    private PasswordEncoder passwordEncoder;
-    @PostMapping("/signup")
-    public ResponseEntity<?> saveDetail(@RequestBody SignUpDto signUpDto){
-        //email is registerd
-        Boolean b = userRepository.existsByEmail(signUpDto.getEmail());
-        if(b){
-            return  new ResponseEntity<>("Email is already exist", HttpStatus.BAD_REQUEST);
-        }
-        Boolean b1 = userRepository.existsByUsername(signUpDto.getUsername());
-        if(b1){
-            return  new ResponseEntity<>("Username is already exist", HttpStatus.BAD_REQUEST);
-        }
-        User user= new User();
-        user.setName(signUpDto.getName());
-        user.setEmail(signUpDto.getEmail());
-        user.setUsername(signUpDto.getUsername());
-        user.setPassword(passwordEncoder.encode(signUpDto.getPassword()));
-        User save = userRepository.save(user);
-        return  new ResponseEntity<>("User is registered", HttpStatus.CREATED);
-
-    }
+    private RoleRepository roleRepository;
     @Autowired
-    private AuthenticationManager authenticationManager;
+    private PasswordEncoder passwordEncoder;
+    @Autowired
+    private JwtTokenProvider tokenProvider;
     @PostMapping("/signin")
-    public ResponseEntity<String> authenticateUser(@RequestBody LoginDto loginDto)
-    {
-        Authentication authentication = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(loginDto.getUsernameOrEmail(),loginDto.getPassword()) );
-
+    public ResponseEntity<JWTAuthResponse> authenticateUser(@RequestBody LoginDto
+                                                                    loginDto) {
+        Authentication authentication = authenticationManager.authenticate(new
+                UsernamePasswordAuthenticationToken(
+                loginDto.getUsernameOrEmail(), loginDto.getPassword()));
         SecurityContextHolder.getContext().setAuthentication(authentication);
-        return new ResponseEntity<>("User signed-in successfully!.", HttpStatus.OK);
+        // get token form tokenProvider
+        String token = tokenProvider.generateToken(authentication);
+        return ResponseEntity.ok(new JWTAuthResponse(token));
     }
+    @PostMapping("/signup")
+    public ResponseEntity<?> registerUser(@RequestBody SignUpDto signUpDto){
+        // add check for username exists in a DB
+        if(userRepository.existsByUsername(signUpDto.getUsername())){
+            return new ResponseEntity<>("Username is already taken!",
+                    HttpStatus.BAD_REQUEST);
+        }
+        // add check for email exists in DB
+        if(userRepository.existsByEmail(signUpDto.getEmail())){
+            return new ResponseEntity<>("Email is already taken!", HttpStatus.BAD_REQUEST);
+        }
+        // create user object
+        User user = new User();
+        user.setName(signUpDto.getName());
+        user.setUsername(signUpDto.getUsername());
+        user.setEmail(signUpDto.getEmail());
+        user.setPassword(passwordEncoder.encode(signUpDto.getPassword()));
 
+        Role roleAdmin = roleRepository.findByName("ROLE_ADMIN").get();//get missing
+        user.setRoles(Collections.singleton(roleAdmin));
+        userRepository.save(user);
+        return new ResponseEntity<>("User registered successfully", HttpStatus.OK);
+    }
 }
